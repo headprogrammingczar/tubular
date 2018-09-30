@@ -1,13 +1,4 @@
-# VBoxManage options, if all else fails
-#   [--nic<1-N> none|null|nat|bridged|intnet|hostonly|
-#               generic|natnetwork]
-#   [--nictype<1-N> Am79C970A|Am79C973|
-#                   82540EM|82543GC|82545EM|
-#                   virtio]
-#   [--hostonlyadapter<1-N> none|<devicename>]
-#   [--intnet<1-N> <network name>]
-#   [--cableconnected<1-N> on|off]
-
+# each vm has a nat interface automatically that should only be used for "vagrant ssh"
 # a host-only network above net-root for external access
 # requires vboxnet0 host-only network with adapter at ip #{hostonly_subnet}.254
 # internal networks simulate wires below
@@ -15,11 +6,26 @@
 hostonly_subnet = "192.168.56"
 internal_subnet = "192.168.57"
 
+# build_mem must be at least 1024 per cpu
+build_mem = 8192
+build_cpus = 8
+
 Vagrant.configure("2") do |config|
-  config.vm.synced_folder ".", "/vagrant", type: "rsync"
+  config.vm.define "build" do |node|
+    # bsd has all the worst luck with support for things
+    # use the vagrant-scp plugin to extract build output
+    node.vm.box = "generic/freebsd11"
+    node.vm.provision "shell", path: "vagrant/build-provision.sh"
+    node.vm.provision "shell", inline: "echo \"Use the project's Makefile to get started\" >> /etc/motd"
+
+    node.vm.provider "virtualbox" do |v|
+      v.memory = build_mem
+      v.cpus = build_cpus
+    end
+  end
 
   config.vm.define "net-root" do |node|
-    node.vm.box = "generic/openbsd6"
+    node.vm.box = "generic/freebsd11"
 
     node.vm.network "private_network", ip: "#{hostonly_subnet}.1"
     # TODO bonding these to the internal subnet's gateway ip is done in bash
@@ -27,30 +33,40 @@ Vagrant.configure("2") do |config|
     node.vm.network "private_network", ip: "#{internal_subnet}.252"
     node.vm.network "private_network", ip: "#{internal_subnet}.253"
 
-    # vbox-specific settings
-    # in vbox each host gets 4 interfaces
+    # vbox allows up to 4 interfaces
     #   one is NAT for vagrant access
     #   one is "up" on the router VM
     #   leaving two for VMs "below" the router
     node.vm.provider "virtualbox" do |vb|
       vb.customize ["modifyvm", :id, "--nic2", "hostonly"]
       vb.customize ["modifyvm", :id, "--nic3", "intnet"]
+      vb.customize ["modifyvm", :id, "--intnet3", "intnet2"]
       vb.customize ["modifyvm", :id, "--nic4", "intnet"]
+      vb.customize ["modifyvm", :id, "--intnet4", "intnet3"]
     end
 
+    node.vm.provision "shell", inline: "echo \"Use the project's Makefile to get started\" >> /etc/motd"
   end
   config.vm.define "d" do |node|
     node.vm.box = "debian/jessie64"
-    node.vm.network "private_network", ip: "#{internal_subnet}.2"
+    # the intnet configuration makes it dhcp to net-root
+    node.vm.network "private_network", type: "dhcp"
     node.vm.provider "virtualbox" do |vb|
       vb.customize ["modifyvm", :id, "--nic2", "intnet"]
+      vb.customize ["modifyvm", :id, "--intnet2", "intnet2"]
     end
+
+    node.vm.provision "shell", inline: "echo \"Use the project's Makefile to get started\" >> /etc/motd"
   end
   config.vm.define "f" do |node|
     node.vm.box = "generic/fedora28"
-    node.vm.network "private_network", ip: "#{internal_subnet}.3"
+    # the intnet configuration makes it dhcp to net-root
+    node.vm.network "private_network", type: "dhcp"
     node.vm.provider "virtualbox" do |vb|
       vb.customize ["modifyvm", :id, "--nic2", "intnet"]
+      vb.customize ["modifyvm", :id, "--intnet2", "intnet3"]
     end
+
+    node.vm.provision "shell", inline: "echo \"Use the project's Makefile to get started\" >> /etc/motd"
   end
 end
