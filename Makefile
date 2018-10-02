@@ -1,5 +1,5 @@
 # Usage: make host-build
-# requires vagrant and virtualbox
+# requires vagrant and virtualbox, and the vagrant-scp plugin
 
 # targets are divided into host-* which run on the host machine,
 # and unprefixed targets that run on the build VM
