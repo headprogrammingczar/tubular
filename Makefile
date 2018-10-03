@@ -52,7 +52,10 @@ host-clean:
 	vagrant destroy -f f
 	rm -rf .stack-work .vagrant
 
+# install, but wherever user input would be needed instead use assumptions about the test network
 host-install: host-power-netroot-vm host-build
 
+# perform full-stack testing with a variety of configurations
+# by taking control of all three vms in the test network
 host-test: host-install host-power-d-vm host-power-f-vm
 
