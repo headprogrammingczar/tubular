@@ -28,11 +28,12 @@ Vagrant.configure("2") do |config|
   config.vm.define "net-root" do |node|
     node.vm.box = "generic/freebsd11"
 
-    node.vm.network "private_network", ip: "#{hostonly_subnet}.1"
-    # TODO bonding these to the internal subnet's gateway ip is done in bash
+    # let virtualbox be the parent network's gateway, since it doesn't matter and is easy
+    node.vm.network "private_network", type: "dhcp"
+    # bonding these to the internal subnet's gateway ip is done in bash
     # but vagrant expects addresses :/
-    node.vm.network "private_network", ip: "#{internal_subnet}.252"
     node.vm.network "private_network", ip: "#{internal_subnet}.253"
+    node.vm.network "private_network", ip: "#{internal_subnet}.254"
 
     # vbox allows up to 4 interfaces
     #   one is NAT for vagrant access
