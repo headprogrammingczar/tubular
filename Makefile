@@ -39,7 +39,9 @@ endif
 
 # scp source onto build box, do a build, then scp the result back to the host
 host-build: host-power-build-vm
-	vagrant ssh build -c "sudo bash -c 'rm -rf /vagrant && mkdir /vagrant && chown vagrant:vagrant /vagrant'"
+	vagrant ssh build -c "sudo bash -c 'rm -rf /vagrant \
+	    && mkdir /vagrant \
+	    && chown vagrant:vagrant /vagrant'"
 	vagrant scp . build:/vagrant
 	vagrant ssh build -c "cd /vagrant && stack build"
 	rm -rf .stack-work
@@ -59,3 +61,4 @@ host-install: host-power-netroot-vm host-build
 # by taking control of all three vms in the test network
 host-test: host-install host-power-d-vm host-power-f-vm
 
+.PHONY: host-build host-clean host-install host-test

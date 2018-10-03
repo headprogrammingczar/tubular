@@ -16,8 +16,10 @@ Vagrant.configure("2") do |config|
     # bsd has all the worst luck with support for things
     # use the vagrant-scp plugin to extract build output
     node.vm.box = "generic/freebsd11"
-    node.vm.provision "shell", path: "vagrant/build-provision.sh"
-    node.vm.provision "shell", inline: "echo \"Use the project's Makefile to get started\" >> /etc/motd"
+    node.vm.provision "shell", inline: <<-EOF
+      curl -sSL https://get.haskellstack.org/ | sh
+      echo "Use the project's Makefile to get started" >> /etc/motd
+    EOF
 
     node.vm.provider "virtualbox" do |v|
       v.memory = build_mem
@@ -46,9 +48,11 @@ Vagrant.configure("2") do |config|
       vb.customize ["modifyvm", :id, "--nic4", "intnet"]
       vb.customize ["modifyvm", :id, "--intnet4", "intnet3"]
     end
-
-    node.vm.provision "shell", inline: "echo \"Use the project's Makefile to get started\" >> /etc/motd"
+    node.vm.provision "shell", inline: <<-EOF
+      echo "Use the project's Makefile to get started" >> /etc/motd
+    EOF
   end
+
   config.vm.define "d" do |node|
     node.vm.box = "debian/jessie64"
     # the intnet configuration makes it dhcp to net-root
@@ -57,9 +61,11 @@ Vagrant.configure("2") do |config|
       vb.customize ["modifyvm", :id, "--nic2", "intnet"]
       vb.customize ["modifyvm", :id, "--intnet2", "intnet2"]
     end
-
-    node.vm.provision "shell", inline: "echo \"Use the project's Makefile to get started\" >> /etc/motd"
+    node.vm.provision "shell", inline: <<-EOF
+      echo "Use the project's Makefile to get started" >> /etc/motd
+    EOF
   end
+
   config.vm.define "f" do |node|
     node.vm.box = "generic/fedora28"
     # the intnet configuration makes it dhcp to net-root
@@ -68,7 +74,8 @@ Vagrant.configure("2") do |config|
       vb.customize ["modifyvm", :id, "--nic2", "intnet"]
       vb.customize ["modifyvm", :id, "--intnet2", "intnet3"]
     end
-
-    node.vm.provision "shell", inline: "echo \"Use the project's Makefile to get started\" >> /etc/motd"
+    node.vm.provision "shell", inline: <<-EOF
+      echo "Use the project's Makefile to get started" >> /etc/motd
+    EOF
   end
 end
