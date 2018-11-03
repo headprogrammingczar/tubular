@@ -67,7 +67,7 @@ Vagrant.configure("2") do |config|
   end
 
   config.vm.define "f" do |node|
-    node.vm.box = "generic/fedora28"
+    node.vm.box = "generic/fedora29"
     # the intnet configuration makes it dhcp to net-root
     node.vm.network "private_network", type: "dhcp"
     node.vm.provider "virtualbox" do |vb|
