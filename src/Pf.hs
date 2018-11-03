@@ -1,4 +1,5 @@
 {-# LANGUAGE DuplicateRecordFields #-}
+-- data structures that (mostly) fully specify https://man.openbsd.org/pf.conf
 module Pf where
 
 import Data.TotalMap
@@ -9,66 +10,9 @@ import Data.Array
 -- UNDOCUMENTED
 -- in the grammar, ipspec is completely unused
 
--- data structure that fully specifies https://man.openbsd.org/pf.conf
-{-
-Syntax for pf.conf in BNF:
-
-line           = ( Options | pf-rule |
-                 antispoof-rule | queue-rule | anchor-rule |
-                 anchor-close | load-anchor | TableRule | Include )
-
-pf-rule        = Action [ Direction ]
-                 [ "log" [ "(" LogOpts ")"] ] [ "quick" ]
-                 [ "on" ( (Array InterfaceSpec) | "rdomain" number ) ] [ AddressFamily ]
-                 [ (Array Protocol) ] [ hosts ] [ filteropts ]
-
-filteropts     = filteropt [ [ "," ] filteropts ]
-filteropt      = user | group | FlagMatch | (Array IcmpMatch) | (Array Icmp6Match) |
-                 "tos" TOS |
-                 ( "no" | "keep" | "modulate" | "synproxy" ) "state"
-                 [ StateOptions ] | "scrub" "(" scrubopts ")" |
-                 "fragment" | "allow-opts" | "once" |
-                 "divert-packet" "port" (OrArray (Constraint PortNumber)) | "divert-reply" |
-                 "divert-to" Host "port" (OrArray (Constraint PortNumber)) |
-                 "label" string | "tag" string | [ "!" ] "tagged" string |
-                 "max-pkt-rate" number "/" seconds |
-                 "set delay" number |
-                 "set prio" ( number | "(" number [ [ "," ] number ] ")" ) |
-                 "set queue" ( string | "(" string [ [ "," ] string ] ")" ) |
-                 "rtable" number | "probability" number"%" | "prio" number |
-                 "af-to" AddressFamily "from" ( "{" redirhost-list "}" )
-                 [ "to" ( "{" redirhost-list "}" ) ] |
-                 "binat-to" ( "{" redirhost-list "}" )
-                 [ PortSpec ] [ PoolType ] |
-                 "rdr-to" ( "{" redirhost-list "}" )
-                 [ PortSpec ] [ PoolType ] |
-                 "nat-to" ( "{" redirhost-list "}" )
-                 [ PortSpec ] [ PoolType ] [ "static-port" ] |
-                 [ Route ] | [ "set tos" TOS ] |
-                 [ [ "!" ] "received-on" ( InterfaceName | InterfaceGroup ) ]
-
-scrubopts      = scrubopt [ [ "," ] scrubopts ]
-scrubopt       = "no-df" | "min-ttl" number | "max-mss" number |
-                 "reassemble tcp" | "random-id"
-
-antispoof-rule = "antispoof" [ "log" ] [ "quick" ]
-                 "for" (Array InterfaceSpec) [ AddressFamily ] [ "label" string ]
-
-queue-rule     = "queue" string [ "on" InterfaceName ] queueopts-list
-
-anchor-rule    = "anchor" [ string ] [ Direction ] [ "on" (Array InterfaceSpec) ]
-                 [ AddressFamily ] [ (Array Protocol) ] [ hosts ] [ filteropt-list ] [ "{" ]
-
-anchor-close   = "}"
-
-load-anchor    = "load anchor" string "from" filename
-
-queueopts-list = queueopts-list queueopts | queueopts
-queueopts      = ([ "bandwidth" Bandwidth ] | [ "min" Bandwidth ] |
-                 [ "max" Bandwidth ] | [ "parent" string ] |
-                 [ "default" ]) |
-                 ([ "flows" number ] | [ "quantum" number ]) |
-                 [ "qlimit" number ]
+-- UNDOCUMENTED
+-- constraints like "> 1024" are OR'd together
+-- for instance, pf implements "port {80, 443}" with one rule for each port
 
 -- UNDOCUMENTED
 -- this grammar is missing some things from the
@@ -80,23 +24,6 @@ queueopts      = ([ "bandwidth" Bandwidth ] | [ "min" Bandwidth ] |
 -- :peer      Translates to the point-to-point interface's peer address(es).
 -- Ranges of addresses are specified using the ‘-’ operator. For instance: “10.1.1.10 - 10.1.1.12” means all addresses from 10.1.1.10 to 10.1.1.12, hence addresses 10.1.1.10, 10.1.1.11, and 10.1.1.12.
 -- Host names may also have the :0 modifier appended to restrict the name resolution to the first of each v4 and v6 address found.
-hosts          = "all" |
-                 "from" ( "any" | "no-route" | "urpf-failed" | "self" |
-                 (Array Host) | "route" string ) [ (OrArray (Constraint PortNumber)) ]
-                 [ os ]
-                 "to"   ( "any" | "no-route" | "self" |
-                 (Array Host) | "route" string ) [ (OrArray (Constraint PortNumber)) ]
-
-host           = Host
-redirhost-list = Array (Address, Maybe MaskBits)
-
--- UNDOCUMENTED
--- constraints are OR'd together
--- for instance, pf implements "port {80, 443}" with one rule for each port
-os             = (OrArray OSName)
-user           = "user" (OrArray (Constraint User))
-group          = "group" (OrArray (Constraint Group))
--}
 
 data RulesetOptimizationLevel = None | Basic | Profile
 
@@ -324,7 +251,7 @@ data PortSpec =
   PortRangeInclusive PortNumber PortNumber
 
 -- a reminder when looking at some types
--- type OrArray = Array
+type OrArray = Array
 
 data Constraint a =
   EqualTo a |
@@ -385,6 +312,12 @@ data PoolType =
   RoundRobin StickyAddress |
   -- optional hashing key, or randomly initialized at pf startup
   SourceHash (Maybe String)
+
+data StateMode =
+  NoState |
+  KeepState (Maybe StateOptions) |
+  ModulateState (Maybe StateOptions) |
+  SynproxyState (Maybe StateOptions)
 
 data StateOptions = StateOptions {
   max :: Word,
@@ -507,4 +440,125 @@ data Options = Options {
   reassemble :: Bool,
   forceReassemble :: Bool
 }
+
+data AntispoofRule = AntiSpoofRule {
+  log :: Bool,
+  quick :: Bool,
+  forInterfaces :: Array Word InterfaceSpec,
+  forAddressFamily :: Maybe AddressFamily,
+  label :: Maybe String
+}
+
+data QueueRule = QueueRule {
+  name :: String,
+  parent :: Either InterfaceName String,
+  isDefault :: Bool,
+  quantum :: Maybe Word,
+  -- default is 50
+  qlimit :: Word,
+  -- this only supports values up to maxBound :: Int16
+  flows :: Maybe Word16,
+  bandwidth :: Maybe Bandwidth,
+  minBandwidth :: Maybe Bandwidth,
+  maxBandwidth :: Maybe Bandwidth
+}
+
+data HostsFromTo =
+  HostAny |
+  HostNoRoute |
+  HostUrpfFailed |
+  HostSelf |
+  Hosts (Array Word Host) |
+  -- the name of a routing table route
+  HostRoute String
+
+data Hosts =
+  AllHosts |
+  FromTo HostsFromTo (OrArray Word (Constraint PortNumber)) (OrArray Word OSName) HostsFromTo (OrArray Word (Constraint PortNumber))
+
+data ScrubOpts = ScrubOpts {
+  nodf :: Bool,
+  -- uses IP number of hops
+  minTTL :: Maybe Word,
+  maxMSS :: Maybe Word,
+  reassembleTCP :: Bool,
+  randomID :: Bool
+}
+
+-- options to filter rules above and beyond the mandatory
+-- "from source port source os source to dest port dest"
+data FilterOpts = FilterOpts {
+  allowOpts :: Bool,
+  divertPort :: OrArray Word (Constraint PortNumber),
+  divertReply :: Bool,
+  divertTo :: (Host, OrArray Word (Constraint PortNumber)),
+  tcpFlags :: FlagMatch,
+  group :: OrArray Word (Constraint Group),
+  icmpMatch :: Array Word IcmpMatch,
+  icmp6Match :: Array Word Icmp6Match,
+  label :: Maybe String,
+  -- fst packets per snd seconds
+  rateLimit :: (Word, Word),
+  once :: Bool,
+  -- integer percentage from 0 to 100
+  probability :: Word8,
+  -- ranges from 0 to 7
+  matchPriority :: Maybe Word8,
+  -- match can be negated
+  receivedOn :: Maybe (Bool, Either InterfaceName InterfaceGroup),
+  -- routing tables are determined externally
+  rtable :: Maybe Word,
+  -- milliseconds
+  setDelay :: Word,
+  -- ranges from 0 to 7, second priority is for ack and lowdelay packets
+  setPriority :: Maybe (Word8, Maybe Word8),
+  -- must match QueueRule names, second queue is for ack and lowdelay packets
+  setQueue :: Maybe (String, Maybe String),
+  setTag :: Maybe String,
+  -- match can be negated
+  matchTag :: Maybe (Bool, String),
+  setTOS :: Maybe TOS,
+  matchTOS :: Maybe TOS,
+  user :: OrArray Word (Constraint User),
+  translateToAF :: Maybe (AddressFamily,
+                          Array Word (Address, Maybe MaskBits),
+                          Array Word (Address, Maybe MaskBits)),
+  -- equivalent to combination of nat and rdr rules
+  translateBiNat :: (Array Word (Address, Maybe MaskBits),
+                     Maybe PortSpec,
+                     Maybe PoolType),
+  -- optionally don't modify source port
+  translateNat :: (Array Word (Address, Maybe MaskBits),
+                   Maybe PortSpec,
+                   Maybe PoolType,
+                   Bool),
+  translateRdr :: (Array Word (Address, Maybe MaskBits),
+                   Maybe PortSpec,
+                   Maybe PoolType),
+  scrub :: ScrubOpts,
+  fragment :: Bool,
+  state :: StateMode,
+  setRoute :: Maybe Route
+}
+
+data PfRule = PfRule {
+  action :: Action,
+  direction :: Maybe Direction,
+  log :: Maybe LogOpts,
+  quick :: Bool,
+  -- either match on target interface or target routing domain
+  on :: Maybe (Either (Array Word InterfaceSpec) (Word)),
+  addressFamily :: Maybe AddressFamily,
+  protocols :: Array Word Protocol,
+  hosts :: Maybe Hosts,
+  filterOpts :: Maybe FilterOpts
+}
+
+data PfLine =
+  OptionsLine Options |
+  RuleLine PfRule |
+  AntispoofLine AntispoofRule |
+  QueueLine QueueRule |
+  TableLine TableRule |
+  IncludeLine Include
 
