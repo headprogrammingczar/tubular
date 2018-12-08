@@ -1,11 +1,14 @@
-{-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE DuplicateRecordFields, RecordWildCards, OverloadedStrings #-}
 -- data structures that (mostly) fully specify https://man.openbsd.org/pf.conf
 module Pf where
 
 import Data.TotalMap
-import Data.Map
+import Data.Map hiding (map)
 import Data.Word
 import Data.Array
+import Data.Text hiding (map)
+import Data.Maybe
+import Data.Monoid
 
 -- UNDOCUMENTED
 -- in the grammar, ipspec is completely unused
@@ -59,6 +62,7 @@ data TimeoutType =
   SrcTrack |
   AdaptiveStart |
   AdaptiveEnd
+  deriving (Enum, Bounded, Eq, Ord)
 
 data TimeoutTMap = TimeoutTMap (TMap TimeoutType Word)
 
@@ -554,11 +558,147 @@ data PfRule = PfRule {
   filterOpts :: Maybe FilterOpts
 }
 
-data PfLine =
-  OptionsLine Options |
-  RuleLine PfRule |
-  AntispoofLine AntispoofRule |
-  QueueLine QueueRule |
-  TableLine TableRule |
-  IncludeLine Include
+data PfLines = PfLines {
+  options :: Options,
+  rules :: [PfRule],
+  antispoofRules :: [AntispoofRule],
+  queueRules :: [QueueRule],
+  tableRules :: [TableRule],
+  includes :: [Include]
+}
+
+showConfig :: PfLines -> Text
+showConfig (PfLines {..}) = pack ""
+  where
+    optionsString = showOptions options
+    rulesString = map showRule rules
+    antispoofString = map showAntispoof antispoofRules
+    queueString = map showQueue queueRules
+    tableString = map showTable tableRules
+    includesString = map showInclude includes
+
+showOptions :: Options -> Text
+showOptions (Options {..}) = intercalate ", " [timeoutsString, rulesetOptimizationString, optimizationString, limitsString, logInterfaceString, blockPolicyString, statePolicyString, stateDefaultsString, osFingerprintsString, skipOnString, debugLevelString, reassembleString]
+  where
+    timeoutsString = let TimeoutTMap m = timeouts in "set timeout {" <> intercalate ", " (map (\t -> showTimeoutType t <> " " <> pack (show (m Data.TotalMap.! t))) [minBound .. maxBound]) <> "}"
+    rulesetOptimizationString = "set ruleset-optimization " <> showRulesetOptimization rulesetOptimization
+    optimizationString = case optimization of
+      Default -> ""
+      _ -> "set optimization " <> showOptimizationLevel optimization
+    limitsString = showLimits limits
+    logInterfaceString = case logInterface of
+      Nothing -> "set loginterface none"
+      Just (InterfaceName s) -> "set loginterface " <> pack s
+    blockPolicyString = "set block-policy " <> showBlockPolicy blockPolicy
+    statePolicyString = "set state-policy " <> showStatePolicy statePolicy
+    stateDefaultsString = "set state-defaults " <> showStateDefaults stateDefaults
+    osFingerprintsString = case osFingerprintsFile of
+      Nothing -> ""
+      Just f -> "set fingerprints \"" <> stringEscape (pack f) <> "\""
+    skipOnString = "set skip on {" <> Data.Text.intercalate ", " (Data.Array.elems (fmap showInterfaceSpec skipOn)) <> "}"
+    debugLevelString = "set debug " <> showDebugLevel debugLevel
+    reassembleString = "set reassemble " <> Data.Text.intercalate " " (catMaybes [Just (yesnoKeyword reassemble), boolKeyword forceReassemble "no-df"])
+
+showInclude :: Include -> Text
+showInclude (Include path) = Data.Text.concat ["include \"", stringEscape (pack path), "\""]
+
+boolKeyword True s = Just s
+boolKeyword False s = Nothing
+
+yesnoKeyword True = "yes"
+yesnoKeyword False = "no"
+
+showDebugLevel Emergency = "emerg"
+showDebugLevel Alert = "alert"
+showDebugLevel Critical = "crit"
+showDebugLevel Error = "err"
+showDebugLevel Warning = "warning"
+showDebugLevel Notice = "notice"
+showDebugLevel Info = "info"
+showDebugLevel Debug = "debug"
+
+showBlockPolicy Block = "block"
+showBlockPolicy Return = "return"
+
+showOptimizationLevel Default = ""
+showOptimizationLevel Normal = "normal"
+showOptimizationLevel HighLatency = "high-latency"
+showOptimizationLevel Satellite = "satellite"
+showOptimizationLevel Aggressive = "aggressive"
+showOptimizationLevel Conservative = "conservative"
+
+showStatePolicy IfBound = "if-bound"
+showStatePolicy Floating = "floating"
+
+showInterfaceSpec (InterfaceMatch e) = showInterface e
+showInterfaceSpec (InterfaceReject e) = "!" <> showInterface e
+
+showInterface (Left (InterfaceName s)) = pack s
+showInterface (Right (InterfaceGroup s)) = pack s
+
+showLimits (Limits {..}) = "set limit {states " <> textShow states <> ", frags " <> textShow frags <> ", src-nodes " <> textShow srcNodes <> ", tables " <> textShow tables <> ", table-entries " <> textShow tableEntries <> "}"
+
+showRulesetOptimization None = "none"
+showRulesetOptimization Basic = "basic"
+showRulesetOptimization Profile = "profile"
+
+showTimeoutType TcpFirst = "tcp.first"
+showTimeoutType TcpOpening = "tcp.opening"
+showTimeoutType TcpEstablished = "tcp.established"
+showTimeoutType TcpClosing = "tcp.closing"
+showTimeoutType TcpFinwait = "tcp.finwait"
+showTimeoutType TcpClosed = "tcp.closed"
+showTimeoutType UdpFirst = "udp.first"
+showTimeoutType UdpSingle = "udp.single"
+showTimeoutType UdpMultiple = "udp.multiple"
+showTimeoutType IcmpFirst = "icmp.first"
+showTimeoutType IcmpError = "icmp.error"
+showTimeoutType OtherFirst = "other.first"
+showTimeoutType OtherSingle = "other.single"
+showTimeoutType OtherMultiple = "other.multiple"
+showTimeoutType Frag = "frag"
+showTimeoutType Interval = "interval"
+showTimeoutType SrcTrack = "src.track"
+showTimeoutType AdaptiveStart = "adaptive.start"
+showTimeoutType AdaptiveEnd = "adaptive.end"
+
+showStateDefaults (StateOptions {..}) = intercalate ", " [maxString, noSyncString, timeoutsString, sloppyString, pflowString, sourceTrackString, maxSrcNodesString, maxSrcStatesString, maxSrcConnString, maxSrcConnRateString, overloadString, ifBoundString]
+  where
+    maxString = "max " <> textShow max
+    noSyncString = if noSync then "no-sync" else ""
+    timeoutsString = let TimeoutMap m = timeouts in intercalate ", " (map (\t -> showTimeoutType t <> " " <> pack (show (m Data.Map.! t))) (keys m))
+    sloppyString = if sloppy then "sloppy" else ""
+    pflowString = if pflow then "pflow" else ""
+    sourceTrackString = case sourceTrack of
+      NoTracking -> ""
+      GlobalTracking -> "source-track global"
+      RuleTracking -> "source-track rule"
+    maxSrcNodesString = case maxSrcNodes of
+      Nothing -> ""
+      Just n -> "max-src-nodes " <> textShow n
+    maxSrcStatesString = case maxSrcStates of
+      Nothing -> ""
+      Just n -> "max-src-states " <> textShow n
+    maxSrcConnString = case maxSrcConn of
+      Nothing -> ""
+      Just n -> "max-src-conn " <> textShow n
+    maxSrcConnRateString = case maxSrcConnRate of
+      Nothing -> ""
+      Just (n,r) -> "max-src-conn-rate " <> textShow n <> "/" <> textShow r
+    overloadString = case overload of
+      Nothing -> ""
+      Just ((Table t), f) -> "overload <" <> pack t <> "> " <> showFlushMode f
+    ifBoundString = if ifBound then "if-bound" else "floating"
+
+showFlushMode NoFlush = ""
+showFlushMode Flush = "flush"
+showFlushMOde FlushGlobal = "flush global"
+
+textShow a = pack (show a)
+
+stringEscape t = Data.Text.concatMap (
+  \c -> case c of
+    '\\' -> "\\\\"
+    '"' -> "\\\""
+    c -> Data.Text.singleton c) t
 
