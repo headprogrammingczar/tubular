@@ -9,6 +9,8 @@ import Data.Array
 import Data.Text hiding (map)
 import Data.Maybe
 import Data.Monoid
+import Data.Bits
+import Numeric
 
 -- UNDOCUMENTED
 -- in the grammar, ipspec is completely unused
@@ -445,7 +447,7 @@ data Options = Options {
   forceReassemble :: Bool
 }
 
-data AntispoofRule = AntiSpoofRule {
+data AntispoofRule = AntispoofRule {
   log :: Bool,
   quick :: Bool,
   forInterfaces :: Array Word InterfaceSpec,
@@ -693,6 +695,106 @@ showStateDefaults (StateOptions {..}) = intercalate ", " [maxString, noSyncStrin
 showFlushMode NoFlush = ""
 showFlushMode Flush = "flush"
 showFlushMOde FlushGlobal = "flush global"
+
+showAntispoof :: AntispoofRule -> Text
+showAntispoof (AntispoofRule {..}) = "antispoof " <> logString <> quickString <> "for " <> ifspecString <> afString <> labelString
+  where
+    logString = if log then "log " else ""
+    quickString = if quick then "quick " else ""
+    ifspecString = "{" <> intercalate ", " (map showIfspec (Data.Array.elems forInterfaces)) <> "}"
+    afString = case forAddressFamily of
+      Nothing -> ""
+      Just Inet -> "inet"
+      Just Inet6 -> "inet6"
+    labelString = case label of
+      Nothing -> ""
+      Just l -> "label " <> pack l
+
+showIfspec (InterfaceMatch i) = case i of
+  Left (InterfaceName s) -> pack s
+  Right (InterfaceGroup s) -> pack s
+showifSpec (InterfaceReject i) = "!" <> case i of
+  Left (InterfaceName s) -> pack s
+  Right (InterfaceGroup s) -> pack s
+
+showQueue :: QueueRule -> Text
+showQueue (QueueRule {..}) = "queue " <> pack name <> parentString <> defaultString <> quantumString <> qlimitString <> flowsString <> bandwidthString <> minBandwidthString <> maxBandwidthString
+  where
+    parentString = case parent of
+      Left (InterfaceName s) -> "on " <> pack s <> " "
+      Right label -> "parent " <> pack label <> " "
+    defaultString = if isDefault then "default " else ""
+    quantumString = case quantum of
+      Nothing -> ""
+      Just n -> "quantum " <> textShow n <> " "
+    qlimitString = "qlimit " <> textShow qlimit <> " "
+    flowsString = case flows of
+      Nothing -> ""
+      Just n -> "flows " <> textShow n <> " "
+    bandwidthString = case bandwidth of
+      Nothing -> ""
+      Just b -> "bandwidth " <> showBandwidth b <> " "
+    minBandwidthString = case minBandwidth of
+      Nothing -> ""
+      Just b -> "min " <> showBandwidth b <> " "
+    maxBandwidthString = case maxBandwidth of
+      Nothing -> ""
+      Just b -> "max " <> showBandwidth b <> " "
+
+showBandwidth :: Bandwidth -> Text
+showBandwidth (Bandwidth {..}) = textShow bitsPerSecond <> burstString
+  where
+    burstString = case burst of
+      Nothing -> ""
+      Just (BandwidthBurst {..}) -> " burst " <> textShow bitsPerSecond <> " for " <> textShow milliseconds <> " ms"
+
+showTable :: TableRule -> Text
+showTable (TableRule {..}) = "table <" <> nameString <> "> " <> persistString <> constString <> countersString <> sourceFilesString <> addressesString
+  where
+    nameString = case name of Table s -> pack s
+    persistString = if persist then "persist " else ""
+    constString = if const then "const " else ""
+    countersString = if counters then "counters " else ""
+    sourceFilesString = intercalate " " (map (\s -> "file " <> pack s) (Data.Array.elems sourceFiles))
+    addressesString = "{" <> intercalate ", " (map showTableAddrSpec (Data.Array.elems addresses)) <> "}"
+
+showTableAddrSpec :: TableAddrSpec -> Text
+showTableAddrSpec (TableAddrSpec {..}) = matchString <> addressString <> maskString
+  where
+    matchString = if match then "" else "!"
+    addressString = showTableAddr address
+    maskString = case maskBits of
+      Nothing -> ""
+      Just (MaskBits n) -> "/" <> textShow n
+
+showTableAddr :: TableAddr -> Text
+showTableAddr (TAHostname (Hostname s)) = pack s
+showTableAddr (TAIfspec ifs) = "{" <> intercalate ", " (map showIfspec (Data.Array.elems ifs)) <> "}"
+showTableAddr TASelf = "self"
+showTableAddr (TAIpv4 addr) = showIpv4 addr
+showTableAddr (TAIpv6 addr) = showIpv6 addr
+
+showIpv4 :: Ipv4 -> Text
+showIpv4 (Ipv4 n) = oct1 <> "." <> oct2 <> "." <> oct3 <> "." <> oct4
+  where
+    oct1 = textShow (shiftR n 24 .&. 0xff)
+    oct2 = textShow (shiftR n 16 .&. 0xff)
+    oct3 = textShow (shiftR n 8 .&. 0xff)
+    oct4 = textShow (shiftR n 0 .&. 0xff)
+
+showIpv6 :: Ipv6 -> Text
+showIpv6 (Ipv6 n m) = intercalate ":" [quad1, quad2, quad3, quad4, quad5, quad6, quad7, quad8]
+  where
+    quad1 = hexShow (shiftR n 48 .&. 0xffff)
+    quad2 = hexShow (shiftR n 32 .&. 0xffff)
+    quad3 = hexShow (shiftR n 16 .&. 0xffff)
+    quad4 = hexShow (shiftR n 0 .&. 0xffff)
+    quad5 = hexShow (shiftR m 48 .&. 0xffff)
+    quad6 = hexShow (shiftR m 32 .&. 0xffff)
+    quad7 = hexShow (shiftR m 16 .&. 0xffff)
+    quad8 = hexShow (shiftR m 0 .&. 0xffff)
+
+hexShow n = pack (showHex n "")
 
 textShow a = pack (show a)
 
