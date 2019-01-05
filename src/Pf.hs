@@ -480,6 +480,7 @@ data HostsFromTo =
 
 data Hosts =
   AllHosts |
+  -- the second HostsFromTo cannot be urpf-failed
   FromTo HostsFromTo (OrArray Word (Constraint PortNumber)) (OrArray Word OSName) HostsFromTo (OrArray Word (Constraint PortNumber))
 
 data ScrubOpts = ScrubOpts {
@@ -793,6 +794,163 @@ showIpv6 (Ipv6 n m) = intercalate ":" [quad1, quad2, quad3, quad4, quad5, quad6,
     quad6 = hexShow (shiftR m 32 .&. 0xffff)
     quad7 = hexShow (shiftR m 16 .&. 0xffff)
     quad8 = hexShow (shiftR m 0 .&. 0xffff)
+
+showRule :: PfRule -> Text
+showRule (PfRule {..}) = actionString <> directionString <> logString <> quickString <> onString <> afString <> protocolsString <> hostsString <> filterOptsString
+  where
+    actionString = showAction action <> " "
+    directionString = case direction of
+      Nothing -> ""
+      Just In -> "in "
+      Just Out -> "out "
+    logString = case log of
+      Nothing -> ""
+      Just logopts -> showLogOpts logopts <> " "
+    quickString = if quick then "quick " else ""
+    onString = case on of
+      Nothing -> ""
+      Just (Left interfaces) -> "on {" <> Data.Text.intercalate ", " (Data.Array.elems (fmap showInterfaceSpec interfaces)) <> "} "
+      Just (Right rdomain) -> "on rdomain " <> textShow rdomain <> " "
+    afString = case addressFamily of
+      Nothing -> ""
+      Just Inet -> "inet "
+      Just Inet6 -> "inet6 "
+    protocolsString = "{" <> Data.Text.intercalate ", " (Data.Array.elems (fmap showProtocol protocols)) <> "} "
+    hostsString = case hosts of
+      Nothing -> ""
+      Just hosts -> showHosts hosts <> " "
+    filterOptsString = case filterOpts of
+      Nothing -> ""
+      Just filterOpts -> showFilterOpts filterOpts
+
+showFilterOpts (FilterOpts {..}) = allowString <> divertPortString <> divertReplyString <> divertToString <> tcpFlagsString <> groupString <> icmpMatchString <> icmp6MatchString <> labelString <> rateLimitString <> onceString <> probabilityString <> matchPriorityString <> receivedOnString <> rtableString <> setDelayString <> setPriorityString <> setQueueString <> setTagString <> matchTagString <> setTOSString <> matchTOSString <> userString <> translateToAFString <> trnaslateBiNatString <> trnaslateNatString <> translateRdrString <> scrubString <> fragmentString <> stateString <> setRouteString
+  where
+    allowString = _
+    divertPortString = _
+    divertReplyString = _
+    divertToString = _
+    tcpFlagsString = _
+    groupString = _
+    icmpMatchString = _
+    icmp6MatchString = _
+    labelString = _
+    rateLimitString = _
+    onceString = _
+    probabilityString = _
+    matchPriorityString = _
+    receivedOnString = _
+    rtableString = _
+    setDelayString = _
+    setPriorityString = _
+    setQueueString = _
+    setTagString = _
+    matchTagString = _
+    setTOSString = _
+    matchTOSString = _
+    userString = _
+    translateToAFString = _
+    trnaslateBiNatString = _
+    trnaslateNatString = _
+    translateRdrString = _
+    scrubString = _
+    fragmentString = _
+    stateString = _
+    setRouteString = _
+
+showHosts AllHosts = "all"
+showHosts (FromTo hostsFrom portsFrom osFrom hostsTo portsTo) = "from " <> hostsFromString <> portsFromString <> osFromString <> hostsToString <> portsToString
+  where
+    hostsFromString = showHostsFromTo hostsFrom <> " "
+    portsFromString = "port {" <> Data.Text.intercalate ", " (Data.Array.elems (fmap (showConstraint showPort) portsFrom)) <> "} "
+    osFromString = "os {" <> Data.Text.intercalate ", " (Data.Array.elems (fmap showOS osFrom)) <> "}"
+    hostsToString = showHostsFromTo hostsTo <> " "
+    portsToString = "port {" <> Data.Text.intercalate ", " (Data.Array.elems (fmap (showConstraint showPort) portsTo)) <> "}"
+
+showOS (OSName s) = pack s
+
+showConstraint show (EqualTo a) = "= " <> show a
+showConstraint show (NotEqualTo a) = "!= " <> show a
+showConstraint show (LessThan a) = "< " <> show a
+showConstraint show (LessOrEqual a) = "<= " <> show a
+showConstraint show (GreaterThan a) = "> " <> show a
+showConstraint show (GreaterOrEqual a) = ">= " <> show a
+showConstraint show (RangeInclusive a b) = show a <> ":" <> show b
+showConstraint show (RangeExclusive a b) = show a <> " >< " <> show b
+showConstraint show (NotRangeInclusive a b) = show a <> " <> " <> show b
+
+showPort (PortNumber p) = textShow p
+
+showHostsFromTo HostAny = "from any"
+showHostsFromTo HostNoRoute = "from no-route"
+showHostsFromTo HostUrpfFailed = "from urpf-failed"
+showHostsFromTo HostSelf = "from self"
+showHostsFromTo (Hosts hosts) = "{" <> Data.Text.intercalate ", " (Data.Array.elems (fmap showHost hosts)) <> "} "
+showHostsFromTo (HostRoute s) = "route " <> pack s
+
+showHost (MatchAddress addr mask weight) = showHostAddress addr mask weight
+showHost (NotMatchAddress addr mask weight) = "!" <> showHostAddress addr mask weight
+showHost (MatchTable (Table t)) = "<" <> pack t <> ">"
+showHost (NotMatchTable (Table t)) = "!<" <> pack t <> ">"
+
+showHostAddress addr mask weight = addressString <> maskString <> weightString
+  where
+    addressString = showAddress addr
+    maskString = case mask of
+      Nothing -> ""
+      Just (MaskBits bits) -> "/" <> textShow bits
+    weightString = case weight of
+      Nothing -> ""
+      Just (Weight w) -> " weight " <> textShow w
+
+showAddress (InterfaceAddress (InterfaceName s)) = pack s
+showAddress (GroupAddress (InterfaceGroup s)) = pack s
+showAddress (HostnameAddress (Hostname s)) = pack s
+showAddress (Ipv4Address ip) = showIpv4 ip
+showAddress (Ipv6Address ip) = showIpv6 ip
+
+showProtocol (Protocol s) = pack s
+
+showLogOpts (LogOpts {..}) = "log " <> allString <> matchesString <> userString <> interfaceString
+  where
+    allString = if logAll then "all " else ""
+    matchesString = if logMatches then "matches " else ""
+    userString = if logUser then "user " else ""
+    interfaceString = "to " <> pack interface
+    (InterfaceName interface) = logInterface
+
+showAction Pass = "pass"
+showAction Match = "match"
+showAction BlockDefault = "block"
+showAction BlockDrop = "block drop"
+showAction BlockReturn = "block return"
+showAction ReturnRst = "block return-rst"
+showAction (ReturnRstTTL ttl) = "block return-rst (ttl " <> textShow ttl <> ")"
+showAction (ReturnIcmp4 code) = "return-icmp (" <> showUnreachCode code <> ")"
+showAction (ReturnIcmpBoth code code6) = "return-icmp (" <> showUnreachCode code <> ", " <> showUnreach6Code code6 <> ")"
+showAction (ReturnIcmp6 code6) = "return-icmp6 (" <> showUnreach6Code code6 <> ")"
+
+showUnreachCode NetUnr = "net-unr"
+showUnreachCode HostUnr = "host-unr"
+showUnreachCode ProtoUnr = "proto-unr"
+showUnreachCode PortUnr = "port-unr"
+showUnreachCode Needfrag = "needfrag"
+showUnreachCode Srcfail = "srcfail"
+showUnreachCode NetUnk = "net-unk"
+showUnreachCode HostUnk = "host-unk"
+showUnreachCode Isolate = "isolate"
+showUnreachCode NetProhib = "net-prohib"
+showUnreachCode HostProhib = "host-prohib"
+showUnreachCode NetTos = "net-tos"
+showUnreachCode HostTos = "host-tos"
+showUnreachCode FilterProhib = "filter-prohib"
+showUnreachCode HostPreced = "host-preced"
+showUnreachCode CutoffPreced = "cutoff-preced"
+
+showUnreach6Code NorouteUnr6 = "noroute-unr"
+showUnreach6Code AdminUnr6 = "admin-unr"
+showUnreach6Code BeyondUnr6 = "beyond-unr"
+showUnreach6Code AddrUnr6 = "addr-unr"
+showUnreach6Code PortUnr6 = "port-unr"
 
 hexShow n = pack (showHex n "")
 
