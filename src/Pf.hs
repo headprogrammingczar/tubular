@@ -6,7 +6,8 @@ import Data.TotalMap
 import Data.Map hiding (map)
 import Data.Word
 import Data.Array
-import Data.Text hiding (map)
+import Data.Text hiding (map, group)
+import Data.String
 import Data.Maybe
 import Data.Monoid
 import Data.Bits
@@ -275,6 +276,8 @@ data OSName = OSName String
 
 data User = UserID Word32 | UserName String
 
+-- this is a group that users are in, not what interfaces are in
+-- for instance, "wheel"
 data Group = GroupID Word32 | GroupName String
 
 data Action =
@@ -284,21 +287,21 @@ data Action =
   BlockDefault |
   BlockDrop |
   BlockReturn |
-  -- UNDOCUMENTED$
-  -- ttl could be made more clear to someone not deeply familiar with IP(v4/v6)$
-  -- it sets return_ttl on a struct, which is type u_int8_t$
-  -- this probably means it is https://en.wikipedia.org/wiki/Time_to_live$
+  -- UNDOCUMENTED
+  -- ttl could be made more clear to someone not deeply familiar with IP(v4/v6)
+  -- it sets return_ttl on a struct, which is type u_int8_t
+  -- this probably means it is https://en.wikipedia.org/wiki/Time_to_live
   -- ttl seems to default to 0? it probably hits scrub min-ttl rules too
   ReturnRst |
   ReturnRstTTL Word8 |
-  -- UNDOCUMENTED$
-  -- pf.conf(5) does not make this very clear, but the source does$
+  -- UNDOCUMENTED
+  -- pf.conf(5) does not make this very clear, but the source does
   -- in /sbin/pfctl/parse.y these options take icmp codes, which depend on a type code
-  -- the code is between 0 and 255, and is combined with the type of returnicmpdefault$
-  -- returnicmpdefault is (ICMP_UNREACH << 8) | ICMP_UNREACH_PORT$
-  -- or in haskell, (Unreach PortUnr)$
-  -- returnicmp6default is (ICMP6_DST_UNREACH << 8) | ICMP6_DST_UNREACH_NOPORT$
-  -- or in haskell, (Unreach6 PortUnr6)$
+  -- the code is between 0 and 255, and is combined with the type of returnicmpdefault
+  -- returnicmpdefault is (ICMP_UNREACH << 8) | ICMP_UNREACH_PORT
+  -- or in haskell, (Unreach PortUnr)
+  -- returnicmp6default is (ICMP6_DST_UNREACH << 8) | ICMP6_DST_UNREACH_NOPORT
+  -- or in haskell, (Unreach6 PortUnr6)
   ReturnIcmp4 UnreachCode |
   ReturnIcmpBoth UnreachCode Unreach6Code |
   ReturnIcmp6 Unreach6Code
@@ -326,7 +329,7 @@ data StateMode =
   SynproxyState (Maybe StateOptions)
 
 data StateOptions = StateOptions {
-  max :: Word,
+  maxStates :: Word,
   noSync :: Bool,
   timeouts :: TimeoutMap,
   sloppy :: Bool,
@@ -374,7 +377,7 @@ data TableAddrSpec = TableAddrSpec {
 data TableRule = TableRule {
   name :: Table,
   persist :: Bool,
-  const :: Bool,
+  constFlag :: Bool,
   counters :: Bool,
   sourceFiles :: Array Word FilePath,
   addresses :: Array Word TableAddrSpec
@@ -448,7 +451,7 @@ data Options = Options {
 }
 
 data AntispoofRule = AntispoofRule {
-  log :: Bool,
+  shouldLog :: Bool,
   quick :: Bool,
   forInterfaces :: Array Word InterfaceSpec,
   forAddressFamily :: Maybe AddressFamily,
@@ -505,7 +508,7 @@ data FilterOpts = FilterOpts {
   icmp6Match :: Array Word Icmp6Match,
   label :: Maybe String,
   -- fst packets per snd seconds
-  rateLimit :: (Word, Word),
+  rateLimit :: Maybe (Word, Word),
   once :: Bool,
   -- integer percentage from 0 to 100
   probability :: Word8,
@@ -551,7 +554,7 @@ data FilterOpts = FilterOpts {
 data PfRule = PfRule {
   action :: Action,
   direction :: Maybe Direction,
-  log :: Maybe LogOpts,
+  logOpts :: Maybe LogOpts,
   quick :: Bool,
   -- either match on target interface or target routing domain
   on :: Maybe (Either (Array Word InterfaceSpec) (Word)),
@@ -571,14 +574,14 @@ data PfLines = PfLines {
 }
 
 showConfig :: PfLines -> Text
-showConfig (PfLines {..}) = pack ""
+showConfig (PfLines {..}) = optionsString <> rulesString <> antispoofString <> queueString <> tableString <> includesString
   where
-    optionsString = showOptions options
-    rulesString = map showRule rules
-    antispoofString = map showAntispoof antispoofRules
-    queueString = map showQueue queueRules
-    tableString = map showTable tableRules
-    includesString = map showInclude includes
+    optionsString = showOptions options <> "\n"
+    rulesString = intercalate "\n" (map showRule rules) <> "\n"
+    antispoofString = intercalate "\n" (map showAntispoof antispoofRules) <> "\n"
+    queueString = intercalate "\n" (map showQueue queueRules) <> "\n"
+    tableString = intercalate "\n" (map showTable tableRules) <> "\n"
+    includesString = intercalate "\n" (map showInclude includes) <> "\n"
 
 showOptions :: Options -> Text
 showOptions (Options {..}) = intercalate ", " [timeoutsString, rulesetOptimizationString, optimizationString, limitsString, logInterfaceString, blockPolicyString, statePolicyString, stateDefaultsString, osFingerprintsString, skipOnString, debugLevelString, reassembleString]
@@ -594,7 +597,7 @@ showOptions (Options {..}) = intercalate ", " [timeoutsString, rulesetOptimizati
       Just (InterfaceName s) -> "set loginterface " <> pack s
     blockPolicyString = "set block-policy " <> showBlockPolicy blockPolicy
     statePolicyString = "set state-policy " <> showStatePolicy statePolicy
-    stateDefaultsString = "set state-defaults " <> showStateDefaults stateDefaults
+    stateDefaultsString = "set state-defaults " <> showStateOpts stateDefaults
     osFingerprintsString = case osFingerprintsFile of
       Nothing -> ""
       Just f -> "set fingerprints \"" <> stringEscape (pack f) <> "\""
@@ -605,12 +608,15 @@ showOptions (Options {..}) = intercalate ", " [timeoutsString, rulesetOptimizati
 showInclude :: Include -> Text
 showInclude (Include path) = Data.Text.concat ["include \"", stringEscape (pack path), "\""]
 
+boolKeyword :: Bool -> a -> Maybe a
 boolKeyword True s = Just s
-boolKeyword False s = Nothing
+boolKeyword False _ = Nothing
 
+yesnoKeyword :: IsString p => Bool -> p
 yesnoKeyword True = "yes"
 yesnoKeyword False = "no"
 
+showDebugLevel :: IsString p => DebugLevel -> p
 showDebugLevel Emergency = "emerg"
 showDebugLevel Alert = "alert"
 showDebugLevel Critical = "crit"
@@ -620,9 +626,11 @@ showDebugLevel Notice = "notice"
 showDebugLevel Info = "info"
 showDebugLevel Debug = "debug"
 
+showBlockPolicy :: IsString p => BlockPolicy -> p
 showBlockPolicy Block = "block"
 showBlockPolicy Return = "return"
 
+showOptimizationLevel :: IsString p => OptimizationLevel -> p
 showOptimizationLevel Default = ""
 showOptimizationLevel Normal = "normal"
 showOptimizationLevel HighLatency = "high-latency"
@@ -630,21 +638,27 @@ showOptimizationLevel Satellite = "satellite"
 showOptimizationLevel Aggressive = "aggressive"
 showOptimizationLevel Conservative = "conservative"
 
+showStatePolicy :: IsString p => StatePolicy -> p
 showStatePolicy IfBound = "if-bound"
 showStatePolicy Floating = "floating"
 
+showInterfaceSpec :: InterfaceSpec -> Text
 showInterfaceSpec (InterfaceMatch e) = showInterface e
 showInterfaceSpec (InterfaceReject e) = "!" <> showInterface e
 
+showInterface :: Either InterfaceName InterfaceGroup -> Text
 showInterface (Left (InterfaceName s)) = pack s
 showInterface (Right (InterfaceGroup s)) = pack s
 
+showLimits :: Limits -> Text
 showLimits (Limits {..}) = "set limit {states " <> textShow states <> ", frags " <> textShow frags <> ", src-nodes " <> textShow srcNodes <> ", tables " <> textShow tables <> ", table-entries " <> textShow tableEntries <> "}"
 
+showRulesetOptimization :: IsString p => RulesetOptimizationLevel -> p
 showRulesetOptimization None = "none"
 showRulesetOptimization Basic = "basic"
 showRulesetOptimization Profile = "profile"
 
+showTimeoutType :: IsString p => TimeoutType -> p
 showTimeoutType TcpFirst = "tcp.first"
 showTimeoutType TcpOpening = "tcp.opening"
 showTimeoutType TcpEstablished = "tcp.established"
@@ -665,9 +679,10 @@ showTimeoutType SrcTrack = "src.track"
 showTimeoutType AdaptiveStart = "adaptive.start"
 showTimeoutType AdaptiveEnd = "adaptive.end"
 
-showStateDefaults (StateOptions {..}) = intercalate ", " [maxString, noSyncString, timeoutsString, sloppyString, pflowString, sourceTrackString, maxSrcNodesString, maxSrcStatesString, maxSrcConnString, maxSrcConnRateString, overloadString, ifBoundString]
+showStateOpts :: StateOptions -> Text
+showStateOpts (StateOptions {..}) = intercalate ", " [maxString, noSyncString, timeoutsString, sloppyString, pflowString, sourceTrackString, maxSrcNodesString, maxSrcStatesString, maxSrcConnString, maxSrcConnRateString, overloadString, ifBoundString]
   where
-    maxString = "max " <> textShow max
+    maxString = "max " <> textShow maxStates
     noSyncString = if noSync then "no-sync" else ""
     timeoutsString = let TimeoutMap m = timeouts in intercalate ", " (map (\t -> showTimeoutType t <> " " <> pack (show (m Data.Map.! t))) (keys m))
     sloppyString = if sloppy then "sloppy" else ""
@@ -693,14 +708,15 @@ showStateDefaults (StateOptions {..}) = intercalate ", " [maxString, noSyncStrin
       Just ((Table t), f) -> "overload <" <> pack t <> "> " <> showFlushMode f
     ifBoundString = if ifBound then "if-bound" else "floating"
 
+showFlushMode :: IsString p => FlushMode -> p
 showFlushMode NoFlush = ""
 showFlushMode Flush = "flush"
-showFlushMOde FlushGlobal = "flush global"
+showFlushMode FlushGlobal = "flush global"
 
 showAntispoof :: AntispoofRule -> Text
 showAntispoof (AntispoofRule {..}) = "antispoof " <> logString <> quickString <> "for " <> ifspecString <> afString <> labelString
   where
-    logString = if log then "log " else ""
+    logString = if shouldLog then "log " else ""
     quickString = if quick then "quick " else ""
     ifspecString = "{" <> intercalate ", " (map showIfspec (Data.Array.elems forInterfaces)) <> "}"
     afString = case forAddressFamily of
@@ -711,10 +727,11 @@ showAntispoof (AntispoofRule {..}) = "antispoof " <> logString <> quickString <>
       Nothing -> ""
       Just l -> "label " <> pack l
 
+showIfspec :: InterfaceSpec -> Text
 showIfspec (InterfaceMatch i) = case i of
   Left (InterfaceName s) -> pack s
   Right (InterfaceGroup s) -> pack s
-showifSpec (InterfaceReject i) = "!" <> case i of
+showIfspec (InterfaceReject i) = "!" <> case i of
   Left (InterfaceName s) -> pack s
   Right (InterfaceGroup s) -> pack s
 
@@ -747,14 +764,17 @@ showBandwidth (Bandwidth {..}) = textShow bitsPerSecond <> burstString
   where
     burstString = case burst of
       Nothing -> ""
-      Just (BandwidthBurst {..}) -> " burst " <> textShow bitsPerSecond <> " for " <> textShow milliseconds <> " ms"
+      Just burst' -> " " <> showBandwidthBurst burst'
+
+showBandwidthBurst :: BandwidthBurst -> Text
+showBandwidthBurst (BandwidthBurst {..}) = "burst " <> textShow bitsPerSecond <> " for " <> textShow milliseconds <> " ms"
 
 showTable :: TableRule -> Text
 showTable (TableRule {..}) = "table <" <> nameString <> "> " <> persistString <> constString <> countersString <> sourceFilesString <> addressesString
   where
     nameString = case name of Table s -> pack s
     persistString = if persist then "persist " else ""
-    constString = if const then "const " else ""
+    constString = if constFlag then "const " else ""
     countersString = if counters then "counters " else ""
     sourceFilesString = intercalate " " (map (\s -> "file " <> pack s) (Data.Array.elems sourceFiles))
     addressesString = "{" <> intercalate ", " (map showTableAddrSpec (Data.Array.elems addresses)) <> "}"
@@ -803,9 +823,9 @@ showRule (PfRule {..}) = actionString <> directionString <> logString <> quickSt
       Nothing -> ""
       Just In -> "in "
       Just Out -> "out "
-    logString = case log of
+    logString = case logOpts of
       Nothing -> ""
-      Just logopts -> showLogOpts logopts <> " "
+      Just logOpts' -> showLogOpts logOpts' <> " "
     quickString = if quick then "quick " else ""
     onString = case on of
       Nothing -> ""
@@ -818,45 +838,326 @@ showRule (PfRule {..}) = actionString <> directionString <> logString <> quickSt
     protocolsString = "{" <> Data.Text.intercalate ", " (Data.Array.elems (fmap showProtocol protocols)) <> "} "
     hostsString = case hosts of
       Nothing -> ""
-      Just hosts -> showHosts hosts <> " "
+      Just hosts' -> showHosts hosts' <> " "
     filterOptsString = case filterOpts of
       Nothing -> ""
-      Just filterOpts -> showFilterOpts filterOpts
+      Just filterOpts' -> showFilterOpts filterOpts'
 
-showFilterOpts (FilterOpts {..}) = allowString <> divertPortString <> divertReplyString <> divertToString <> tcpFlagsString <> groupString <> icmpMatchString <> icmp6MatchString <> labelString <> rateLimitString <> onceString <> probabilityString <> matchPriorityString <> receivedOnString <> rtableString <> setDelayString <> setPriorityString <> setQueueString <> setTagString <> matchTagString <> setTOSString <> matchTOSString <> userString <> translateToAFString <> trnaslateBiNatString <> trnaslateNatString <> translateRdrString <> scrubString <> fragmentString <> stateString <> setRouteString
+showFilterOpts :: FilterOpts -> Text
+showFilterOpts (FilterOpts {..}) =
+  allowString <> divertPortString <> divertReplyString <> divertToString <>
+  tcpFlagsString <> groupString <> icmpMatchString <> icmp6MatchString <>
+  labelString <> rateLimitString <> onceString <> probabilityString <>
+  matchPriorityString <> receivedOnString <> rtableString <>
+  setDelayString <> setPriorityString <> setQueueString <> setTagString <>
+  matchTagString <> setTOSString <> matchTOSString <> userString <>
+  translateToAFString <> translateBiNatString <> translateNatString <>
+  translateRdrString <> scrubString <> fragmentString <> stateString <>
+  setRouteString
   where
-    allowString = _
-    divertPortString = _
-    divertReplyString = _
-    divertToString = _
-    tcpFlagsString = _
-    groupString = _
-    icmpMatchString = _
-    icmp6MatchString = _
-    labelString = _
-    rateLimitString = _
-    onceString = _
-    probabilityString = _
-    matchPriorityString = _
-    receivedOnString = _
-    rtableString = _
-    setDelayString = _
-    setPriorityString = _
-    setQueueString = _
-    setTagString = _
-    matchTagString = _
-    setTOSString = _
-    matchTOSString = _
-    userString = _
-    translateToAFString = _
-    trnaslateBiNatString = _
-    trnaslateNatString = _
-    translateRdrString = _
-    scrubString = _
-    fragmentString = _
-    stateString = _
-    setRouteString = _
+    allowString = if allowOpts then "allow-opts " else ""
+    divertPortString = "divert-packet port {" <> Data.Text.intercalate ", " (Data.Array.elems (fmap (showConstraint showPort) divertPort)) <> "} "
+    divertReplyString = if divertReply then "divert-reply " else ""
+    divertToString = "divert-to " <> showHost (fst divertTo) <> " port {" <> Data.Text.intercalate ", " (Data.Array.elems (fmap (showConstraint showPort) (snd divertTo))) <> "} "
+    tcpFlagsString = showFlagMatch tcpFlags
+    groupString = "group {" <> Data.Text.intercalate ", " (Data.Array.elems (fmap (showConstraint showGroup) group)) <> "} "
+    icmpMatchString = "icmp-type {" <> Data.Text.intercalate ", " (Data.Array.elems (fmap showIcmpMatch icmpMatch)) <> "} "
+    icmp6MatchString = "icmp6-type {" <> Data.Text.intercalate ", " (Data.Array.elems (fmap showIcmp6Match icmp6Match)) <> "} "
+    labelString = case label of
+      Nothing -> ""
+      Just s -> "label " <> pack s <> " "
+    rateLimitString = case rateLimit of
+      Nothing -> ""
+      Just (pkts, secs) -> "max-pkt-rate " <> textShow pkts <> "/" <> textShow secs <> " "
+    onceString = if once then "once " else ""
+    probabilityString = if probability == 100 then "" else "probability " <> textShow probability <> "% "
+    matchPriorityString = case matchPriority of
+      Nothing -> ""
+      Just n -> "prio " <> textShow n <> " "
+    receivedOnString = case receivedOn of
+      Nothing -> ""
+      Just (neg, iface) -> if neg then "!" else "" <> "received-on " <> showInterface iface <> " "
+    rtableString = case rtable of
+      Nothing -> ""
+      Just n -> "rtable " <> textShow n <> " "
+    setDelayString = if setDelay == 0 then "" else "set delay " <> textShow setDelay <> " "
+    setPriorityString = case setPriority of
+      Nothing -> ""
+      Just (n, Nothing) -> "set prio " <> textShow n <> " "
+      Just (n, Just m) -> "set prio (" <> textShow n <> ", " <> textShow m <> ") "
+    setQueueString = case setQueue of
+      Nothing -> ""
+      Just (s, Nothing) -> "set queue " <> pack s <> " "
+      Just (s, Just t) -> "set queue (" <> pack s <> ", " <> pack t <> ") "
+    setTagString = case setTag of
+      Nothing -> ""
+      Just s -> "tag " <> pack s <> " "
+    matchTagString = case matchTag of
+      Nothing -> ""
+      Just (neg, s) -> (if neg then "!" else "") <> "tagged " <> pack s <> " "
+    setTOSString = case setTOS of
+      Nothing -> ""
+      Just tos -> "set tos " <> showTOS tos <> " "
+    matchTOSString = case matchTOS of
+      Nothing -> ""
+      Just tos -> "tos " <> showTOS tos <> " "
+    userString = "user {" <> Data.Text.intercalate ", " (Data.Array.elems (fmap (showConstraint showUser) user)) <> "}"
+    translateToAFString = case translateToAF of
+      Nothing -> ""
+      Just (fam, from, to) -> "af-to " <> showAddressFamily fam <> " from {" <> Data.Text.intercalate ", " (Data.Array.elems (fmap showNatHostAddress from)) <> "} to {" <> Data.Text.intercalate ", " (Data.Array.elems (fmap showNatHostAddress to)) <> "} "
+    translateBiNatString = case translateBiNat of
+      (from, port, pool) -> "binat-to {" <> Data.Text.intercalate ", " (Data.Array.elems (fmap showNatHostAddress from)) <> "} " <> portSpecString <> poolTypeString
+        where
+          portSpecString = case port of
+            Nothing -> ""
+            Just port' -> showPortSpec port' <> " "
+          poolTypeString = case pool of
+            Nothing -> ""
+            Just pool' -> showPoolType pool' <> " "
+    translateNatString = case translateNat of
+      (from, port, pool, static) -> "nat-to {" <> Data.Text.intercalate ", " (Data.Array.elems (fmap showNatHostAddress from)) <> "} " <> portSpecString <> poolTypeString <> staticString
+        where
+          portSpecString = case port of
+            Nothing -> ""
+            Just port' -> showPortSpec port' <> " "
+          poolTypeString = case pool of
+            Nothing -> ""
+            Just pool' -> showPoolType pool' <> " "
+          staticString = if static then "static-port " else ""
+    translateRdrString = case translateRdr of
+      (from, port, pool) -> "rdr-to {" <> Data.Text.intercalate ", " (Data.Array.elems (fmap showNatHostAddress from)) <> "} " <> portSpecString <> poolTypeString
+        where
+          portSpecString = case port of
+            Nothing -> ""
+            Just port' -> showPortSpec port' <> " "
+          poolTypeString = case pool of
+            Nothing -> ""
+            Just pool' -> showPoolType pool' <> " "
+    scrubString = "scrub (" <> showScrubOpts scrub <> ") "
+    fragmentString = if fragment then "fragment " else "fragment"
+    stateString = case state of
+      NoState -> "no state "
+      KeepState opts -> "keep state " <> case opts of
+        Nothing -> ""
+        Just opts' -> showStateOpts opts' <> " "
+      ModulateState opts -> "modulate state " <> case opts of
+        Nothing -> ""
+        Just opts' -> showStateOpts opts' <> " "
+      SynproxyState opts -> "synproxy state " <> case opts of
+        Nothing -> ""
+        Just opts' -> showStateOpts opts' <> " "
+    setRouteString = case setRoute of
+      Nothing -> ""
+      Just route -> showRoute route
 
+showPortSpec :: PortSpec -> Text
+showPortSpec (PortEqualTo port) = "port " <> showPort port
+showPortSpec (PortGreaterThan port) = "port " <> showPort port <> ":*"
+showPortSpec (PortRangeInclusive from to) = "port " <> showPort from <> ":" <> showPort to
+
+showNatHostAddress :: (Address, Maybe MaskBits) -> Text
+showNatHostAddress (addr, mask) = showHostAddress addr mask Nothing
+
+showAddressFamily :: IsString p => AddressFamily -> p
+showAddressFamily Inet = "inet"
+showAddressFamily Inet6 = "inet6"
+
+showIcmpMatch :: (Monoid p, IsString p) => IcmpMatch -> p
+showIcmpMatch Echorep = "echorep"
+showIcmpMatch (Unreach code) = "unreach" <> case code of
+  Nothing -> ""
+  Just code' -> " code " <> showUnreachCode code'
+showIcmpMatch Squench = "squench"
+showIcmpMatch (Redir code) = "redir" <> case code of
+  Nothing -> ""
+  Just code' -> " code " <> showRedirCode code'
+showIcmpMatch Althost = "althost"
+showIcmpMatch Echoreq = "echoreq"
+showIcmpMatch (Routeradv code) = "routeradv" <> case code of
+  Nothing -> ""
+  Just code' -> " code " <> showRouteradvCode code'
+showIcmpMatch Routersol = "routersol"
+showIcmpMatch (Timex code) = "timex" <> case code of
+  Nothing -> ""
+  Just code' -> " code " <> showTimexCode code'
+showIcmpMatch (Paramprob code) = "paramprob" <> case code of
+  Nothing -> ""
+  Just code' -> " code " <> showParamprobCode code'
+showIcmpMatch Timereq = "timereq"
+showIcmpMatch Timerep = "timerep"
+showIcmpMatch Inforeq = "inforeq"
+showIcmpMatch Inforep = "inforep"
+showIcmpMatch Maskreq = "maskreq"
+showIcmpMatch Maskrep = "maskrep"
+showIcmpMatch Trace = "trace"
+showIcmpMatch Dataconv = "dataconv"
+showIcmpMatch Mobredir = "mobredir"
+showIcmpMatch Ipv6Where = "ipv6-where"
+showIcmpMatch Ipv6Here = "ipv6-here"
+showIcmpMatch Mobregreq = "mobregreq"
+showIcmpMatch Mobregrep = "mobregrep"
+showIcmpMatch Skip = "skip"
+showIcmpMatch (Photuris code) = "photuris" <> case code of
+  Nothing -> ""
+  Just code' -> " code " <> showPhoturisCode code'
+
+showPhoturisCode :: IsString p => PhoturisCode -> p
+showPhoturisCode UnknownInd = "unknown-ind"
+showPhoturisCode AuthFail = "auth-fail"
+showPhoturisCode DecryptFail = "decrypt-fail"
+
+showParamprobCode :: IsString p => ParamprobCode -> p
+showParamprobCode Badhead = "badhead"
+showParamprobCode Optmiss = "optmiss"
+showParamprobCode Badlen = "badlen"
+
+showTimexCode :: IsString p => TimexCode -> p
+showTimexCode Transit = "transit"
+showTimexCode Reassemb = "reassemb"
+
+showRouteradvCode :: IsString p => RouteradvCode -> p
+showRouteradvCode NormalAdv = "normal-adv"
+showRouteradvCode CommonAdv = "common-adv"
+
+showRedirCode :: IsString p => RedirCode -> p
+showRedirCode RedirNet = "redir-net"
+showRedirCode RedirHost = "redir-host"
+showRedirCode RedirTosNet = "redir-tos-net"
+showRedirCode RedirTosHost = "redir-tos-host"
+
+showIcmp6Match :: (IsString p, Monoid p) => Icmp6Match -> p
+showIcmp6Match (Unreach6 code) = "unreach" <> case code of
+  Nothing -> ""
+  Just code' -> " code " <> showUnreach6Code code'
+showIcmp6Match Toobig6 = "toobig"
+showIcmp6Match (Timex6 code) = "timex" <> case code of
+  Nothing -> ""
+  Just code' -> " code " <> showTimex6Code code'
+showIcmp6Match (Paramprob6 code) = "paramprob" <> case code of
+  Nothing -> ""
+  Just code' -> " code " <> showParamprob6Code code'
+showIcmp6Match Echoreq6 = "echoreq"
+showIcmp6Match Echorep6 = "echorep"
+showIcmp6Match Groupqry6 = "groupqry"
+showIcmp6Match Listqry6 = "listqry"
+showIcmp6Match Grouprep6 = "grouprep"
+showIcmp6Match Listenrep6 = "listenrep"
+showIcmp6Match Groupterm6 = "groupterm"
+showIcmp6Match Listendone6 = "listendone"
+showIcmp6Match Routersol6 = "routersol"
+showIcmp6Match Routeradv6 = "routeradv"
+showIcmp6Match Neighbrsol6 = "neighbrsol"
+showIcmp6Match Neighbradv6 = "neighbradv"
+showIcmp6Match (Redir6 code) = "redir" <> case code of
+  Nothing -> ""
+  Just code' -> " code " <> showRedir6Code code'
+showIcmp6Match Routrrenum6 = "routrrenum"
+showIcmp6Match Fqdnreq6 = "fqdnreq"
+showIcmp6Match Niqry6 = "niqry"
+showIcmp6Match Wrureq6 = "wrureq"
+showIcmp6Match Fqdnrep6 = "fqdnrep"
+showIcmp6Match Nirep6 = "nirep"
+showIcmp6Match Wrurep6 = "wrurep"
+showIcmp6Match Mtraceresp6 = "mtraceresp"
+showIcmp6Match Mtrace6 = "mtrace"
+
+showRedir6Code :: IsString p => Redir6Code -> p
+showRedir6Code Redironlink6 = "redironlink"
+showRedir6Code Redirrouter6 = "redirrouter"
+
+showParamprob6Code :: IsString p => Paramprob6Code -> p
+showParamprob6Code Badhead6 = "badhead"
+showParamprob6Code Nxthdr6 = "nxthdr"
+
+showTimex6Code :: IsString p => Timex6Code -> p
+showTimex6Code Transit6 = "transit"
+showTimex6Code Reassemb6 = "reassemb"
+
+showUser :: User -> Text
+showUser (UserID w) = textShow w
+showUser (UserName s) = pack s
+
+showGroup :: Group -> Text
+showGroup (GroupID w) = textShow w
+showGroup (GroupName s) = pack s
+
+showFlagMatch :: FlagMatch -> Text
+showFlagMatch (FlagMatch m) = "flags " <> onFlagsString <> "/" <> allFlagsString
+  where
+    (offFlags, onFlags) = Data.Map.partition id m
+    offFlagsString = pack (map flagTypeChar (keys offFlags))
+    onFlagsString = pack (map flagTypeChar (keys onFlags))
+    allFlagsString = offFlagsString <> onFlagsString
+
+flagTypeChar :: FlagType -> Char
+flagTypeChar Fin = 'F'
+flagTypeChar Syn = 'S'
+flagTypeChar Rst = 'R'
+flagTypeChar Push = 'P'
+flagTypeChar Ack = 'A'
+flagTypeChar Urg = 'U'
+flagTypeChar Ece = 'E'
+flagTypeChar Cwr = 'W'
+
+showRoute :: Route -> Text
+showRoute (Route {..}) = methodString <> destinationString <> typeString
+  where
+    methodString = case method of
+      RouteTo -> "route-to "
+      ReplyTo -> "reply-to "
+      DupTo -> "dup-to "
+    destinationString = "{" <> Data.Text.intercalate ", " (Data.Array.elems (fmap showRouteHost destination)) <> "} "
+    typeString = case poolType of
+      Nothing -> ""
+      Just poolType' -> showPoolType poolType'
+
+showPoolType :: PoolType -> Text
+showPoolType Bitmask = "bitmask"
+showPoolType (LeastStates (StickyAddress s)) = "least-states" <> if s then " sticky-address" else ""
+showPoolType (Random (StickyAddress s)) = "random" <> if s then " sticky-address" else ""
+showPoolType (RoundRobin (StickyAddress s)) = "round-robin" <> if s then " sticky-address" else ""
+showPoolType (SourceHash key) = "source-hash" <> case key of
+  Nothing -> ""
+  Just s -> " " <> pack s
+
+showRouteHost :: RouteHost -> Text
+showRouteHost (RHHost host interface) = hostString <> interfaceString
+  where
+    hostString = showHost host
+    interfaceString = case interface of
+      Nothing -> ""
+      Just (InterfaceName s) -> "@" <> pack s
+showRouteHost (RHInterface (InterfaceName s) address) = "(" <> interfaceString <> addressString <> ")"
+  where
+    interfaceString = pack s
+    addressString = case address of
+      Nothing -> ""
+      Just (addr, mask) -> " " <> showHostAddress addr mask Nothing
+
+showScrubOpts :: ScrubOpts -> Text
+showScrubOpts (ScrubOpts {..}) = intercalate ", " . catMaybes $ [nodfString, minTTLString, maxMSSString, reassembleString, randomIDString]
+  where
+    nodfString = if nodf then Just "no-df" else Nothing
+    minTTLString = case minTTL of
+      Nothing -> Nothing
+      Just n -> Just ("min-ttl " <> textShow n)
+    maxMSSString = case maxMSS of
+      Nothing -> Nothing
+      Just n -> Just ("max-mss " <> textShow n)
+    reassembleString = if reassembleTCP then Just "reassemble tcp" else Nothing
+    randomIDString = if randomID then Just "random-id" else Nothing
+
+showTOS :: TOS -> Text
+showTOS TOSCritical = "critical"
+showTOS InetControl = "inetcontrol"
+showTOS LowDelay = "lowdelay"
+showTOS NetControl = "netcontrol"
+showTOS Throughput = "throughput"
+showTOS Reliability = "reliability"
+showTOS (DiffServCodePoint s) = pack s
+showTOS (DiffServNumber n) = "0x" <> hexShow n
+
+showHosts :: Hosts -> Text
 showHosts AllHosts = "all"
 showHosts (FromTo hostsFrom portsFrom osFrom hostsTo portsTo) = "from " <> hostsFromString <> portsFromString <> osFromString <> hostsToString <> portsToString
   where
@@ -866,20 +1167,24 @@ showHosts (FromTo hostsFrom portsFrom osFrom hostsTo portsTo) = "from " <> hosts
     hostsToString = showHostsFromTo hostsTo <> " "
     portsToString = "port {" <> Data.Text.intercalate ", " (Data.Array.elems (fmap (showConstraint showPort) portsTo)) <> "}"
 
+showOS :: OSName -> Text
 showOS (OSName s) = pack s
 
-showConstraint show (EqualTo a) = "= " <> show a
-showConstraint show (NotEqualTo a) = "!= " <> show a
-showConstraint show (LessThan a) = "< " <> show a
-showConstraint show (LessOrEqual a) = "<= " <> show a
-showConstraint show (GreaterThan a) = "> " <> show a
-showConstraint show (GreaterOrEqual a) = ">= " <> show a
-showConstraint show (RangeInclusive a b) = show a <> ":" <> show b
-showConstraint show (RangeExclusive a b) = show a <> " >< " <> show b
-showConstraint show (NotRangeInclusive a b) = show a <> " <> " <> show b
+showConstraint :: (IsString m, Monoid m) => (t -> m) -> Constraint t -> m
+showConstraint show' (EqualTo a) = "= " <> show' a
+showConstraint show' (NotEqualTo a) = "!= " <> show' a
+showConstraint show' (LessThan a) = "< " <> show' a
+showConstraint show' (LessOrEqual a) = "<= " <> show' a
+showConstraint show' (GreaterThan a) = "> " <> show' a
+showConstraint show' (GreaterOrEqual a) = ">= " <> show' a
+showConstraint show' (RangeInclusive a b) = show' a <> ":" <> show' b
+showConstraint show' (RangeExclusive a b) = show' a <> " >< " <> show' b
+showConstraint show' (NotRangeInclusive a b) = show' a <> " <> " <> show' b
 
+showPort :: PortNumber -> Text
 showPort (PortNumber p) = textShow p
 
+showHostsFromTo :: HostsFromTo -> Text
 showHostsFromTo HostAny = "from any"
 showHostsFromTo HostNoRoute = "from no-route"
 showHostsFromTo HostUrpfFailed = "from urpf-failed"
@@ -887,10 +1192,13 @@ showHostsFromTo HostSelf = "from self"
 showHostsFromTo (Hosts hosts) = "{" <> Data.Text.intercalate ", " (Data.Array.elems (fmap showHost hosts)) <> "} "
 showHostsFromTo (HostRoute s) = "route " <> pack s
 
+showHost :: Host -> Text
 showHost (MatchAddress addr mask weight) = showHostAddress addr mask weight
 showHost (NotMatchAddress addr mask weight) = "!" <> showHostAddress addr mask weight
 showHost (MatchTable (Table t)) = "<" <> pack t <> ">"
 showHost (NotMatchTable (Table t)) = "!<" <> pack t <> ">"
+
+showHostAddress :: Address -> Maybe MaskBits -> Maybe Weight -> Text
 
 showHostAddress addr mask weight = addressString <> maskString <> weightString
   where
@@ -902,14 +1210,17 @@ showHostAddress addr mask weight = addressString <> maskString <> weightString
       Nothing -> ""
       Just (Weight w) -> " weight " <> textShow w
 
+showAddress :: Address -> Text
 showAddress (InterfaceAddress (InterfaceName s)) = pack s
 showAddress (GroupAddress (InterfaceGroup s)) = pack s
 showAddress (HostnameAddress (Hostname s)) = pack s
 showAddress (Ipv4Address ip) = showIpv4 ip
 showAddress (Ipv6Address ip) = showIpv6 ip
 
+showProtocol :: Protocol -> Text
 showProtocol (Protocol s) = pack s
 
+showLogOpts :: LogOpts -> Text
 showLogOpts (LogOpts {..}) = "log " <> allString <> matchesString <> userString <> interfaceString
   where
     allString = if logAll then "all " else ""
@@ -918,6 +1229,7 @@ showLogOpts (LogOpts {..}) = "log " <> allString <> matchesString <> userString 
     interfaceString = "to " <> pack interface
     (InterfaceName interface) = logInterface
 
+showAction :: Action -> Text
 showAction Pass = "pass"
 showAction Match = "match"
 showAction BlockDefault = "block"
@@ -929,6 +1241,7 @@ showAction (ReturnIcmp4 code) = "return-icmp (" <> showUnreachCode code <> ")"
 showAction (ReturnIcmpBoth code code6) = "return-icmp (" <> showUnreachCode code <> ", " <> showUnreach6Code code6 <> ")"
 showAction (ReturnIcmp6 code6) = "return-icmp6 (" <> showUnreach6Code code6 <> ")"
 
+showUnreachCode :: IsString p => UnreachCode -> p
 showUnreachCode NetUnr = "net-unr"
 showUnreachCode HostUnr = "host-unr"
 showUnreachCode ProtoUnr = "proto-unr"
@@ -946,19 +1259,23 @@ showUnreachCode FilterProhib = "filter-prohib"
 showUnreachCode HostPreced = "host-preced"
 showUnreachCode CutoffPreced = "cutoff-preced"
 
+showUnreach6Code :: IsString p => Unreach6Code -> p
 showUnreach6Code NorouteUnr6 = "noroute-unr"
 showUnreach6Code AdminUnr6 = "admin-unr"
 showUnreach6Code BeyondUnr6 = "beyond-unr"
 showUnreach6Code AddrUnr6 = "addr-unr"
 showUnreach6Code PortUnr6 = "port-unr"
 
+hexShow :: (Show a, Integral a) => a -> Text
 hexShow n = pack (showHex n "")
 
+textShow :: Show a => a -> Text
 textShow a = pack (show a)
 
+stringEscape :: Text -> Text
 stringEscape t = Data.Text.concatMap (
   \c -> case c of
     '\\' -> "\\\\"
     '"' -> "\\\""
-    c -> Data.Text.singleton c) t
+    c' -> Data.Text.singleton c') t
 
