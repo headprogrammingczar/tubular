@@ -17,7 +17,8 @@ packages:
 - .
 # Dependency packages to be pulled from upstream that are not in the resolver
 # using the same syntax as the packages field.
-#extra-deps:
+extra-deps:
+- total-map-0.0.7
 #- snaplet-i18n-0.2.0
 #- snaplet-purescript-0.5.2.0
 #- snaplet-sqlite-simple-1.0.0.2
@@ -37,3 +38,6 @@ packages:
 #
 # Allow a newer minor version of GHC than the snapshot specifies
 # compiler-check: newer-minor
+
+ghc-options:
+  "$locals": "-Wall -Werror"

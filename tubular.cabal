@@ -51,7 +51,9 @@ executable tubular
   main-is:             Main.hs
 
   -- Modules included in this executable, other than Main.
-  -- other-modules:       
+  other-modules:
+    Pf,
+    Paths_tubular
 
   -- LANGUAGE extensions used by modules in this package.
   -- other-extensions:    
@@ -59,7 +61,11 @@ executable tubular
   -- Other library packages from which modules are imported.
   build-depends:
     base >=4.10 && <4.11,
-    snap >=1.0 && <2.0
+    containers >=0.5 && <0.6,
+    array >= 0.5 && <0.6,
+    snap >=1.0 && <2.0,
+    total-map == 0.0.7,
+    text >= 1.2 && < 1.3
     -- snaplet-i18n ==0.2.0,
     -- snaplet-purescript ==0.5.2.0,
     -- snaplet-sqlite-simple >=1.0 && <2.0,
