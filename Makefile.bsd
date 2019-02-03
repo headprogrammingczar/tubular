@@ -1,0 +1,26 @@
+# $FreeBSD$
+
+# this gets copied to the build VM as "Makefile"
+# and defines how to build the bsd-level package
+
+PORTNAME=	tubular
+
+# matches the cabal file version
+DISTVERSION=	0.1.0.0
+
+# increments with every change that doesn't bump the code version
+# such as updating dependencies in the build environment
+PORTREVISION=	0
+
+GH_ACCOUNT=	headprogrammingczar
+GH_TAGNAME=	${DISTVERSION}.${PORTREVISION}
+MASTER_SITES=	GITHUB
+
+# placeholder - use github instead
+MAINTAINER=	use-github-instead@example.com
+
+LICENSE=	BSD3CLAUSE
+CATEGORIES=	net-mgmt
+COMMENT=	Firewall frontend
+
+.include <bsd.port.mk>

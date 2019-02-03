@@ -13,11 +13,13 @@ build_cpus = 4
 
 Vagrant.configure("2") do |config|
   config.vm.define "build" do |node|
-    # bsd has all the worst luck with support for things
-    # use the vagrant-scp plugin to extract build output
     node.vm.box = "generic/freebsd11"
     node.vm.provision "shell", inline: <<-EOF
       curl -sSL https://get.haskellstack.org/ | sh
+      echo 'REFUSE accessibility arabic archivers astro audio benchmarks biology cad chinese comms converters databases deskutils devel dns editors emulators finance french ftp games german graphics hebrew hungarian irc japanese java korean lang mail math misc multimedia net news palm polish ports-mgmt portuguese print russian science security shells sysutils textproc ukrainian vietnamese www x11' >> /etc/portsnap.conf
+      # lie to portsnap because it can damn well run non-interactively
+      # and portsnap cron waits up to an hour
+      portsnap fetch extract --interactive
       echo "Use the project's Makefile to get started" >> /etc/motd
     EOF
 
