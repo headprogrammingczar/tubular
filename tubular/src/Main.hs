@@ -30,7 +30,8 @@ import System.IO
 data CliArgs = CliArgs {
   configFile :: FilePath,
   pidFile :: FilePath,
-  daemonize :: Bool
+  daemonize :: Bool,
+  processAction :: String
 }
 
 parseCliArgs :: Parser CliArgs
@@ -49,7 +50,12 @@ parseCliArgs = CliArgs <$>
     value "/var/run/tubulard.pid") <*>
   switch (
     long "daemonize" <>
-    help "Run in the background")
+    help "Run in the background") <*>
+  argument str (
+    metavar "action" <>
+    help "Whether to start or stop the daemon" <>
+    showDefault <>
+    value "start")
 
 runCliParser :: IO CliArgs
 runCliParser = execParser (info (parseCliArgs <**> helper) (fullDesc <> progDesc "A totally tubular firewall frontend" <> header "Tubular"))
@@ -59,13 +65,45 @@ main = do
   -- get command-line options
   cliArgs <- runCliParser
   -- get config file options
-  -- daemonize
-  runDaemon cliArgs $ do
-    -- print debug info
-    putStrLn ("Tubular version: (" ++ show version ++ ")")
-    -- serve http
-    let config = defaultConfig
-    httpServe config snapMain
+  case processAction cliArgs of
+    "start" -> do
+      -- daemonize
+      case daemonize cliArgs of
+        True -> do
+          runDaemon cliArgs $ do
+            -- print debug info
+            putStrLn ("Tubular version: (" <> show version <> ")")
+            -- serve http
+            let config = defaultConfig
+            httpServe config snapMain
+        False -> do
+          -- print debug info
+          putStrLn ("Tubular version: (" <> show version <> ")")
+          -- serve http
+          let config = defaultConfig
+          httpServe config snapMain
+    "stop" -> do
+      let pidFilePath = pidFile cliArgs
+      fileExists <- doesPathExist pidFilePath
+      case fileExists of
+        -- no other instances running
+        False -> error (pidFilePath <> " not found")
+        True -> do
+          -- see if the pid file references an active process
+          pidstr <- readFile pidFilePath
+          pid <- readIO pidstr
+          guard (pid > 1)
+          signalled <- catch (signalProcess keyboardTermination pid >> pure True) (\(SomeException _) -> pure False)
+          case signalled of
+            False -> error ("Process " <> pidstr <> " in " <> pidFilePath <> " not found")
+            True -> do
+              -- confirm it's gone
+              threadDelay (1 * 1000 * 1000)
+              signalled' <- catch (signalProcess nullSignal pid >> pure True) (\(SomeException _) -> pure False)
+              case signalled' of
+                True -> error ("Process " <> pidstr <> " did not stop")
+                False -> pure ()
+    s -> error ("Unrecognized action " <> s)
   pure ()
 
 runDaemon :: CliArgs -> IO () -> IO ()
