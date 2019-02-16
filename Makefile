@@ -43,6 +43,7 @@ tubular-${VERSION}.txz:
 	vagrant scp Makefile.bsd build:/vagrant/Makefile
 	vagrant scp pkg-descr build:/vagrant
 	vagrant scp pkg-plist build:/vagrant
+	vagrant scp files build:/vagrant
 	# build the code
 	vagrant ssh build -c "cd /vagrant/tubular-src && stack build"
 	# make a "source dist"

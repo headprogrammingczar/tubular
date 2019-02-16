@@ -1,0 +1,32 @@
+#!/bin/sh
+
+# $FreeBSD$
+#
+# PROVIDE: tubulard
+# REQUIRE: LOGIN
+# KEYWORD: shutdown
+#
+# Add these lines to /etc/rc.conf.local or /etc/rc.conf
+# to enable this service:
+#
+# tubulard_enable (bool):	Set to NO by default.
+#				Set it to YES to enable doormand.
+# tubulard_config (path):	Set to %%PREFIX%%/etc/tubulard/tubulard.cf
+#				by default.
+
+. /etc/rc.subr
+
+name=tubulard
+rcvar=tubulard_enable
+
+load_rc_config $name
+
+: ${tubulard_enable:="NO"}
+: ${tubulard_config="%%PREFIX%%/etc/tubulard/tubulard.cf"}
+
+command=%%PREFIX%%/bin/${name}
+pidfile=/var/run/${name}.pid
+
+command_args="--daemonize --pid-file $pidfile --config $tubulard_config"
+
+run_rc_command "$1"

@@ -51,7 +51,8 @@ Vagrant.configure("2") do |config|
       vb.customize ["modifyvm", :id, "--intnet4", "intnet3"]
     end
     node.vm.provision "shell", inline: <<-EOF
-      echo "Use the project's Makefile to get started" >> /etc/motd
+      echo "Use the project's Makefile to get started
+or run sudo service tubulard onestart" >> /etc/motd
     EOF
   end
 

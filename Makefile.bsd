@@ -23,4 +23,11 @@ LICENSE=	BSD3CLAUSE
 CATEGORIES=	net-mgmt
 COMMENT=	Firewall frontend
 
+# magically install an rc script
+USE_RC_SUBR=	tubulard
+
+# move compilation output to match where it will be installed to
+post-install:
+	${INSTALL_PROGRAM} ${WRKSRC}/bin/tubulard ${STAGEDIR}${PREFIX}/bin/tubulard
+
 .include <bsd.port.mk>
