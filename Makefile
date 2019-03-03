@@ -51,6 +51,7 @@ tubular-${VERSION}.txz:
 	    && mkdir tubular-${VERSION} \
 	    && cp -R tubular-src/.stack-work/install/${OSDIR}/${GHCDIR}/* tubular-${VERSION} \
 	    && cp tubular-src/Makefile tubular-${VERSION} \
+	    && cp -R tubular-src/usr tubular-${VERSION} \
 	    && sudo mkdir -p /usr/ports/distfiles \
 	    && sudo tar cvzf /usr/ports/distfiles/tubular-${VERSION}.tar.gz tubular-${VERSION} \
 	    && make makesum'"
@@ -85,6 +86,7 @@ install: tubular-${VERSION}.txz
 	# remove the previously installed version
 	vagrant ssh net-root -c "sudo pkg remove -y tubular || true"
 	vagrant ssh net-root -c "sudo pkg install -y tubular-${VERSION}.txz"
+	vagrant ssh net-root -c "sudo service tubulard onerestart"
 
 # perform full-stack testing with a variety of configurations
 # by taking control of all three vms in the test network

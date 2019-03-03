@@ -6,10 +6,18 @@
 hostonly_subnet = "192.168.56"
 internal_subnet = "192.168.57"
 
+def envint(s)
+  Integer(ENV[s])
+rescue TypeError
+  nil
+rescue ArgumentError
+  nil
+end
+
 # build_mem must be at least 1024 per cpu
 # 4 cpus seems to be ideal for build time
-build_mem = 4096
-build_cpus = 4
+build_mem = envint('BUILDMEM') || 4096
+build_cpus = envint('BUILDCPUS') || 4
 
 Vagrant.configure("2") do |config|
   config.vm.define "build" do |node|

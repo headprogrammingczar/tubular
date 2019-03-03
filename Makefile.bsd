@@ -29,5 +29,7 @@ USE_RC_SUBR=	tubulard
 # move compilation output to match where it will be installed to
 post-install:
 	${INSTALL_PROGRAM} ${WRKSRC}/bin/tubulard ${STAGEDIR}${PREFIX}/bin/tubulard
+	${MKDIR} ${STAGEDIR}${DATADIR}
+	${INSTALL_DATA} ${WRKSRC}/usr/share/tubular/bootstrap.min.css ${STAGEDIR}${DATADIR}
 
 .include <bsd.port.mk>
