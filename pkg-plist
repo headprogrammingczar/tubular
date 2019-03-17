@@ -1,2 +1,3 @@
 bin/tubulard
 share/tubular/bootstrap.min.css
+share/tubular/custom.js

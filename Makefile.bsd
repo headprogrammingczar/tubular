@@ -21,7 +21,7 @@ MAINTAINER=	use-github-instead@example.com
 
 LICENSE=	BSD3CLAUSE
 CATEGORIES=	net-mgmt
-COMMENT=	Firewall frontend
+COMMENT=	A totally tubular firewall frontend
 
 # magically install an rc script
 USE_RC_SUBR=	tubulard
@@ -31,5 +31,6 @@ post-install:
 	${INSTALL_PROGRAM} ${WRKSRC}/bin/tubulard ${STAGEDIR}${PREFIX}/bin/tubulard
 	${MKDIR} ${STAGEDIR}${DATADIR}
 	${INSTALL_DATA} ${WRKSRC}/usr/share/tubular/bootstrap.min.css ${STAGEDIR}${DATADIR}
+	${INSTALL_DATA} ${WRKSRC}/usr/share/tubular/custom.js ${STAGEDIR}${DATADIR}
 
 .include <bsd.port.mk>

@@ -82,10 +82,12 @@ clean:
 
 install: tubular-${VERSION}.txz
 	vagrant up net-root
+	# workaround for vagrant image having a line that does not parse
+	vagrant ssh net-root -c "sudo sed -i .bk '/^firstboot-growfs/d' /etc/rc.conf"
 	vagrant scp tubular-${VERSION}.txz net-root:~
 	# remove the previously installed version
 	vagrant ssh net-root -c "sudo pkg remove -y tubular || true"
-	vagrant ssh net-root -c "sudo pkg install -y tubular-${VERSION}.txz"
+	vagrant ssh net-root -c "sudo pkg install -y augeas tubular-${VERSION}.txz"
 	vagrant ssh net-root -c "sudo service tubulard onerestart"
 
 # perform full-stack testing with a variety of configurations

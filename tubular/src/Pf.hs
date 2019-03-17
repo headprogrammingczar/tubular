@@ -584,9 +584,9 @@ showConfig (PfLines {..}) = optionsString <> rulesString <> antispoofString <> q
     includesString = intercalate "\n" (map showInclude includes) <> "\n"
 
 showOptions :: Options -> Text
-showOptions (Options {..}) = intercalate ", " [timeoutsString, rulesetOptimizationString, optimizationString, limitsString, logInterfaceString, blockPolicyString, statePolicyString, stateDefaultsString, osFingerprintsString, skipOnString, debugLevelString, reassembleString]
+showOptions (Options {..}) = intercalate "\n" [timeoutsString, rulesetOptimizationString, optimizationString, limitsString, logInterfaceString, blockPolicyString, statePolicyString, stateDefaultsString, osFingerprintsString, skipOnString, debugLevelString, reassembleString]
   where
-    timeoutsString = let TimeoutTMap m = timeouts in "set timeout {" <> intercalate ", " (map (\t -> showTimeoutType t <> " " <> pack (show (m Data.TotalMap.! t))) [minBound .. maxBound]) <> "}"
+    timeoutsString = let TimeoutTMap m = timeouts in "set timeout {\n  " <> intercalate ",\n  " (map (\t -> showTimeoutType t <> " " <> pack (show (m Data.TotalMap.! t))) [minBound .. maxBound]) <> "}"
     rulesetOptimizationString = "set ruleset-optimization " <> showRulesetOptimization rulesetOptimization
     optimizationString = case optimization of
       Default -> ""
@@ -680,33 +680,33 @@ showTimeoutType AdaptiveStart = "adaptive.start"
 showTimeoutType AdaptiveEnd = "adaptive.end"
 
 showStateOpts :: StateOptions -> Text
-showStateOpts (StateOptions {..}) = intercalate ", " [maxString, noSyncString, timeoutsString, sloppyString, pflowString, sourceTrackString, maxSrcNodesString, maxSrcStatesString, maxSrcConnString, maxSrcConnRateString, overloadString, ifBoundString]
+showStateOpts (StateOptions {..}) = intercalate ", " (catMaybes [maxString, noSyncString, timeoutsString, sloppyString, pflowString, sourceTrackString, maxSrcNodesString, maxSrcStatesString, maxSrcConnString, maxSrcConnRateString, overloadString, ifBoundString])
   where
-    maxString = "max " <> textShow maxStates
-    noSyncString = if noSync then "no-sync" else ""
-    timeoutsString = let TimeoutMap m = timeouts in intercalate ", " (map (\t -> showTimeoutType t <> " " <> pack (show (m Data.Map.! t))) (keys m))
-    sloppyString = if sloppy then "sloppy" else ""
-    pflowString = if pflow then "pflow" else ""
+    maxString = Just ("max " <> textShow maxStates)
+    noSyncString = if noSync then Just "no-sync" else Nothing
+    timeoutsString = let TimeoutMap m = timeouts in if Data.Map.null m then Nothing else Just (intercalate ", " (map (\t -> showTimeoutType t <> " " <> pack (show (m Data.Map.! t))) (keys m)))
+    sloppyString = if sloppy then Just "sloppy" else Nothing
+    pflowString = if pflow then Just "pflow" else Nothing
     sourceTrackString = case sourceTrack of
-      NoTracking -> ""
-      GlobalTracking -> "source-track global"
-      RuleTracking -> "source-track rule"
+      NoTracking -> Nothing
+      GlobalTracking -> Just "source-track global"
+      RuleTracking -> Just "source-track rule"
     maxSrcNodesString = case maxSrcNodes of
-      Nothing -> ""
-      Just n -> "max-src-nodes " <> textShow n
+      Nothing -> Nothing
+      Just n -> Just ("max-src-nodes " <> textShow n)
     maxSrcStatesString = case maxSrcStates of
-      Nothing -> ""
-      Just n -> "max-src-states " <> textShow n
+      Nothing -> Nothing
+      Just n -> Just ("max-src-states " <> textShow n)
     maxSrcConnString = case maxSrcConn of
-      Nothing -> ""
-      Just n -> "max-src-conn " <> textShow n
+      Nothing -> Nothing
+      Just n -> Just ("max-src-conn " <> textShow n)
     maxSrcConnRateString = case maxSrcConnRate of
-      Nothing -> ""
-      Just (n,r) -> "max-src-conn-rate " <> textShow n <> "/" <> textShow r
+      Nothing -> Nothing
+      Just (n,r) -> Just ("max-src-conn-rate " <> textShow n <> "/" <> textShow r)
     overloadString = case overload of
-      Nothing -> ""
-      Just ((Table t), f) -> "overload <" <> pack t <> "> " <> showFlushMode f
-    ifBoundString = if ifBound then "if-bound" else "floating"
+      Nothing -> Nothing
+      Just ((Table t), f) -> Just ("overload <" <> pack t <> "> " <> showFlushMode f)
+    ifBoundString = if ifBound then Just "if-bound" else Just "floating"
 
 showFlushMode :: IsString p => FlushMode -> p
 showFlushMode NoFlush = ""
@@ -736,7 +736,7 @@ showIfspec (InterfaceReject i) = "!" <> case i of
   Right (InterfaceGroup s) -> pack s
 
 showQueue :: QueueRule -> Text
-showQueue (QueueRule {..}) = "queue " <> pack name <> parentString <> defaultString <> quantumString <> qlimitString <> flowsString <> bandwidthString <> minBandwidthString <> maxBandwidthString
+showQueue (QueueRule {..}) = "queue " <> pack name <> " " <> parentString <> defaultString <> quantumString <> qlimitString <> flowsString <> bandwidthString <> minBandwidthString <> maxBandwidthString
   where
     parentString = case parent of
       Left (InterfaceName s) -> "on " <> pack s <> " "
@@ -1161,10 +1161,10 @@ showHosts :: Hosts -> Text
 showHosts AllHosts = "all"
 showHosts (FromTo hostsFrom portsFrom osFrom hostsTo portsTo) = "from " <> hostsFromString <> portsFromString <> osFromString <> hostsToString <> portsToString
   where
-    hostsFromString = showHostsFromTo hostsFrom <> " "
+    hostsFromString = "from " <> showHostsFromTo hostsFrom <> " "
     portsFromString = "port {" <> Data.Text.intercalate ", " (Data.Array.elems (fmap (showConstraint showPort) portsFrom)) <> "} "
-    osFromString = "os {" <> Data.Text.intercalate ", " (Data.Array.elems (fmap showOS osFrom)) <> "}"
-    hostsToString = showHostsFromTo hostsTo <> " "
+    osFromString = "os {" <> Data.Text.intercalate ", " (Data.Array.elems (fmap showOS osFrom)) <> "} "
+    hostsToString = "to " <> showHostsFromTo hostsTo <> " "
     portsToString = "port {" <> Data.Text.intercalate ", " (Data.Array.elems (fmap (showConstraint showPort) portsTo)) <> "}"
 
 showOS :: OSName -> Text
@@ -1185,10 +1185,10 @@ showPort :: PortNumber -> Text
 showPort (PortNumber p) = textShow p
 
 showHostsFromTo :: HostsFromTo -> Text
-showHostsFromTo HostAny = "from any"
-showHostsFromTo HostNoRoute = "from no-route"
-showHostsFromTo HostUrpfFailed = "from urpf-failed"
-showHostsFromTo HostSelf = "from self"
+showHostsFromTo HostAny = "any"
+showHostsFromTo HostNoRoute = "no-route"
+showHostsFromTo HostUrpfFailed = "urpf-failed"
+showHostsFromTo HostSelf = "self"
 showHostsFromTo (Hosts hosts) = "{" <> Data.Text.intercalate ", " (Data.Array.elems (fmap showHost hosts)) <> "} "
 showHostsFromTo (HostRoute s) = "route " <> pack s
 
